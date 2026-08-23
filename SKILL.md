@@ -27,16 +27,21 @@ cd /path/to/blocked-fetch && npm install   # installs playwright-core (no browse
 ```
 
 ```bash
-node scripts/fetch.js 'https://www.reddit.com/r/python/hot.json?limit=10'    # JSON → compact JSON out
+node scripts/fetch.js 'https://www.reddit.com/r/python/hot.json?limit=10'    # full ladder, JSON → compact JSON out
 node scripts/fetch.js 'https://example.com/page' --text                      # plain text out
-node scripts/fetch.js 'https://cloudflare-protected.com' --text --stealth    # CloakBrowser rung
+node scripts/fetch.js url1 url2 url3 --max-bytes 50000                      # batch crawl, context-safe
+node scripts/fetch.js 'https://example.com' --selector 'a'                  # extract elements → JSON [{text,href}]
+node scripts/fetch.js 'https://hard-target.com' --text --stealth            # CloakBrowser rung
 node scripts/fetch.js 'URL' | jq '.'                                        # readable JSON
+npm run selftest                                                             # verify the setup
 ```
 
+- **Rung 1 is built into fetch.js**: it curls with a browser UA first — plain-HTTP sites (Amazon, LinkedIn) never launch a browser at all. The browser lazy-launches only when a URL needs it, and one session serves a whole batch.
 - Browser: auto-detects `/usr/bin/chromium`, chrome, brave, or playwright's bundled chromium. Override with `BLOCKED_FETCH_BROWSER=/path/to/browser`.
 - Persistent profile at `~/.cache/blocked-fetch-profile` (stealth: `-stealth` suffix) — cookies survive between runs, so the hop happens only when actually needed. Delete those dirs to reset.
+- Output guard: stdout capped at 200KB (`--max-bytes N` to change, `--out FILE` for the full body) so a huge page can't flood the agent context. HTTP 429 auto-backs-off 10s and retries once.
 - Stealth mode needs `npm install cloakbrowser` in the skill dir. Optional proxy: `CLOAKBROWSER_PROXY=http://user:pass@host:port` (+ `CLOAKBROWSER_LICENSE_KEY` for Pro).
-- Exit codes: 0 ok · 1 blocked/unreachable · 2 setup/usage error.
+- Exit codes: 0 all ok · 1 some/all blocked · 2 setup/usage error.
 
 ## How the hop works (manual, via Playwright MCP)
 
