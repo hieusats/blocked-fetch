@@ -5,7 +5,8 @@ Fetch pages and data from websites that block curl/bots — 403s, "blocked by ne
 Ladder of escalation, stopping at the first rung that works:
 1. curl with a browser User-Agent
 2. real browser session (Playwright) — also handles JS-rendered pages
-3. **DuckDuckGo-hop unlock** — land on the target through a DDG result redirect, which sets the session cookie that unlocks direct access (the only thing that works for Reddit)
+3. **search-hop unlock** — land on the target through a search-result redirect (DDG/Bing), which sets the session cookie that unlocks direct access (the only thing that works for Reddit)
+4. **CloakBrowser stealth Chromium** (`--stealth`) — real Chromium with C++-level fingerprint patches, for sites that fingerprint the browser itself (Cloudflare Turnstile, FingerprintJS)
 
 Ships with `scripts/fetch.js`: one command that runs the ladder automatically, with a persistent browser profile so the hop only happens when needed.
 
@@ -31,7 +32,10 @@ Load with `/skill:blocked-fetch`, or just ask pi to fetch/scrape a site that ret
 ```bash
 node scripts/fetch.js 'https://www.reddit.com/r/python/hot.json?limit=10'
 node scripts/fetch.js 'https://www.indeed.com/jobs?q=python' --text
+node scripts/fetch.js 'https://hard-target.com' --text --stealth   # after: npm install cloakbrowser
 node scripts/fetch.js 'URL' | jq '.'
 ```
+
+Stealth mode extras: `CLOAKBROWSER_PROXY=http://user:pass@host:port` for a residential proxy (auto geoip), `CLOAKBROWSER_LICENSE_KEY` for CloakBrowser Pro.
 
 Exit codes: 0 ok · 1 blocked · 2 setup error. Reset the session profile with `rm -rf ~/.cache/blocked-fetch-profile`.

@@ -4,6 +4,7 @@
   "private": true,
   "description": "Fetch pages from sites that block curl/bots, via browser session + DuckDuckGo-hop unlock",
   "dependencies": {
+    "cloakbrowser": "^0.5.8",
     "playwright-core": "^1.50.0"
   }
 }
