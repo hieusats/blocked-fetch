@@ -14,16 +14,60 @@ Adapted and generalized for [pi](https://github.com/badlogic/pi-mammoth) from th
 
 ## Install
 
+### 1. Skill + Playwright (rungs 1–3)
+
 ```bash
 git clone https://github.com/hieusats/blocked-fetch ~/.pi/agent/skills/blocked-fetch
-cd ~/.pi/agent/skills/blocked-fetch && npm install   # playwright-core only, no browser download
+cd ~/.pi/agent/skills/blocked-fetch
+npm install            # playwright-core — no browser download
 ```
 
-A chromium/chrome must exist on the system (auto-detected; override with `BLOCKED_FETCH_BROWSER`). Or clone anywhere and add the path to pi `settings.json`:
+The browser rung needs a chromium/chrome on the system. Auto-detection order:
+
+1. `BLOCKED_FETCH_BROWSER` env var, if set
+2. System browser: `/usr/bin/chromium`, `/usr/bin/chromium-browser`, `/usr/bin/google-chrome-stable`, `/usr/bin/google-chrome`, `/usr/bin/brave-browser`
+3. Playwright-bundled chromium in `~/.cache/ms-playwright/`
+
+If none exists, either install your distro's chromium (e.g. Arch: `sudo pacman -S chromium`, Debian/Ubuntu: `sudo apt install chromium`) or let Playwright download one (no sudo needed):
+
+```bash
+npx playwright-core install chromium   # headless shell into ~/.cache/ms-playwright
+```
+
+Or clone anywhere and add the path to pi `settings.json`:
 
 ```json
 { "skills": ["/path/to/blocked-fetch"] }
 ```
+
+### 2. CloakBrowser — optional stealth rung 4
+
+Only needed when the target fingerprints the browser itself (Cloudflare Turnstile, FingerprintJS, Kasada):
+
+```bash
+cd ~/.pi/agent/skills/blocked-fetch
+npm install cloakbrowser
+```
+
+- **First `--stealth` run auto-downloads the stealth Chromium binary (~200MB)** into the cloakbrowser cache.
+- **Free tier, no signup:** binary v146, 1 concurrent session. A GitHub key from <https://cloakbrowser.dev/free> unlocks the newest build (also free); `CLOAKBROWSER_LICENSE_KEY` env or `cloakbrowser login` enables Pro.
+- **Linux font note:** for best Windows-spoofing fidelity install a full Windows font set (see [CloakBrowser font setup](https://github.com/CloakHQ/cloakbrowser#font-setup-on-linux)); harmless to skip — silence the warning with `CLOAKBROWSER_SUPPRESS_FONT_WARNING=1`.
+- Optional proxy config:
+
+```bash
+CLOAKBROWSER_PROXY=http://user:pass@residential-proxy:port \  # residential IP beats datacenter
+CLOAKBROWSER_LICENSE_KEY=... \                              # only for Pro
+node scripts/fetch.js 'https://hard-target.com' --text --stealth
+```
+
+### 3. Verify
+
+```bash
+node scripts/fetch.js 'https://www.reddit.com/r/python/hot.json?limit=3'   # rungs 1–3
+node scripts/fetch.js 'https://www.reddit.com/r/python/hot.json?limit=3' --stealth   # rung 4
+```
+
+Both should print compact JSON (`exit 0`). The first run may show the hop log lines (`[#] ... hopping via ...`) — that's normal.
 
 ## Usage
 
