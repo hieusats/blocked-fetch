@@ -1,82 +1,70 @@
 ---
-name: reddit-fetch
-description: Fetch content from Reddit via its JSON API using a browser session (DuckDuckGo-hop unlock). Use when accessing Reddit URLs, researching topics on Reddit, or when Reddit returns 403/blocked errors.
+name: blocked-fetch
+description: Fetch pages and data from websites that block curl/bots — 403s, "blocked by network security", captcha or robot challenge pages. Ladder of curl-with-browser-UA → real browser session → DuckDuckGo-hop unlock. Covers Reddit's .json API, Indeed, and similar bot-walled sites. Use for web crawling/scraping when a site refuses plain HTTP clients.
 ---
 
-# Reddit Fetch
+# Blocked Fetch
 
-Reddit's public JSON API works by appending `.json` to any Reddit URL — but Reddit now hard-blocks automated access. **curl 403s essentially every time (regardless of User-Agent), and even a cold Playwright navigation to `reddit.com` hits a `"You've been blocked by network security"` challenge page.** The reliable method is to arrive at Reddit *through a DuckDuckGo result redirect*: that sets a Reddit session cookie which unlocks direct `.json` access for the rest of the browser session.
+Many sites block plain HTTP clients while allowing real browsers. Don't give up on a 403 — climb the ladder. Each rung is cheap; stop at the first that works.
 
-In pi, Playwright MCP tools are called through the `mcp` gateway: `mcp({ tool: "playwright_browser_navigate", args: { url: "..." } })`, `mcp({ tool: "playwright_browser_evaluate", args: { function: "..." } })`.
+## The ladder
 
-## Primary method: the DuckDuckGo-hop unlock
-
-**Step 1 - the DDG hop.** Do this once per session before any `.json` fetch.
-
-1. Navigate (playwright_browser_navigate) to `https://html.duckduckgo.com/html/?q=site:reddit.com/r/SUBREDDIT+YOUR+QUERY`
-2. Grab the first result's **full href** via playwright_browser_evaluate - it's a DDG redirect that includes a `rut` token (`https://duckduckgo.com/l/?uddg=...&rut=...`). The token is required; navigating to the bare `/l/?uddg=` without it 400s.
-   ```js
-   () => document.querySelector('.result__a')?.href
+1. **curl with a browser User-Agent** — fastest, surprisingly often enough (Amazon, LinkedIn currently allow it from many IPs).
+   ```bash
+   UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+   curl -s -L -o /tmp/page.txt -w "%{http_code}" -H "User-Agent: $UA" 'URL'
    ```
-3. Navigate to that full redirect href. It lands on a real `www.reddit.com` page (title = the post/subreddit title, **not** "Blocked") and sets the session cookie. The result doesn't have to be the exact thread you want - landing on *any* real Reddit page sets the cookie.
+   Fetch to a temp file (`-o`), never pipe raw output into context.
+2. **Real browser session** (`scripts/fetch.js`) — handles JS-rendered pages and most bot walls (Indeed 403s curl but serves browsers fine).
+3. **DuckDuckGo-hop unlock** — for sites that block even fresh browser sessions (Reddit). Landing on the site *through a DDG result redirect* sets a session cookie that unlocks direct access. `fetch.js` does this automatically; see "How the hop works" to do it manually via the Playwright MCP.
 
-If Playwright errors with `Browser is already in use`, a stale instance is holding the profile - kill the stale playwright browser process (`pkill -f playwright` or the profile dir named in the error) and retry.
+## Quick path: fetch.js
 
-**Step 2 - direct `.json` now works.** For the rest of the session, navigate Playwright straight to any `.json` URL and `JSON.parse(document.body.innerText)`. Use `www.reddit.com` (not `old.reddit.com`) for browser navigation. Full recency sorting (`sort=new&t=week`) is available.
-
-1. Navigate to e.g. `https://www.reddit.com/r/SUBREDDIT/search.json?q=QUERY&restrict_sr=on&sort=new&t=week&limit=25`
-2. Evaluate, **always wrapped in try/catch** (return `document.body.innerText.slice(0,200)` on failure so you can see a challenge page if the session lapsed - just re-do the hop):
-   ```js
-   () => {
-     try {
-       const data = JSON.parse(document.body.innerText);
-       return data.data.children.map(c => ({
-         t: c.data.title, s: c.data.score, n: c.data.num_comments, id: c.data.id
-       }));
-     } catch (e) { return document.body.innerText.slice(0, 200); }
-   }
-   ```
-3. For a thread, navigate to `.../comments/POST_ID.json?limit=30&sort=top` and parse `data[0]` (post) and `data[1].data.children` (comments).
-
-## JSON shapes (same for browser and curl)
-
-```text
-# Listing - swap hot for new/top/rising; for top add &t=day|week|month|year|all
-/r/SUBREDDIT/hot.json?limit=15
-# Post + comments - JSON array where [0]=post, [1]=comment tree
-/r/SUBREDDIT/comments/POST_ID.json?limit=20
-# Search within a subreddit
-/r/SUBREDDIT/search.json?q=QUERY&restrict_sr=on&sort=new&limit=15
+Setup once:
+```bash
+cd /path/to/blocked-fetch && npm install   # installs playwright-core (no browser download)
 ```
 
-- Listings: `.data.children[].data` has `title`, `score`, `num_comments`, `author`, `id`.
-- Threads: `[0].data.children[0].data` is the post; `[1].data.children[]` (filter `kind == "t1"`) are comments with `author`, `score`, `body`, and nested `replies` of the same shape.
-- Truncate long comment bodies (e.g. `body.slice(0, 300)` in JS, `.body[:300]` in jq 1.7+) to keep output readable.
+```bash
+node scripts/fetch.js 'https://www.reddit.com/r/python/hot.json?limit=10'    # JSON → compact JSON out
+node scripts/fetch.js 'https://example.com/page' --text                      # plain text out
+node scripts/fetch.js 'URL' | jq '.'                                        # readable JSON
+```
 
-## Fallbacks
+- Browser: auto-detects `/usr/bin/chromium`, chrome, brave, or playwright's bundled chromium. Override with `BLOCKED_FETCH_BROWSER=/path/to/browser`.
+- Persistent profile at `~/.cache/blocked-fetch-profile` — cookies survive between runs, so the hop happens only when actually needed. Delete that dir to reset.
+- Exit codes: 0 ok · 1 blocked/unreachable · 2 setup/usage error.
 
-- **More comments per thread:** load the rendered thread page (after the hop) and scrape the `shreddit` DOM - it returns more comments than `.json?limit=`:
-  ```js
-  () => ({
-    title: document.querySelector('shreddit-post')?.getAttribute('post-title'),
-    comments: [...document.querySelectorAll('shreddit-comment')].map(c => ({
-      author: c.getAttribute('author'),
-      score:  c.getAttribute('score'),
-      text:   c.querySelector('.md')?.innerText
-    }))
-  })
-  ```
-- **curl (last resort, expect 403):** direct curl with a browser User-Agent used to work and is faster when it does, but it now gets 403'd essentially always - changing the UA doesn't help. Only worth a single quick try if a browser isn't available; on 403, go straight to the DDG hop. Fetch to a temp file then parse with jq.
-  ```bash
-  UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-  curl -s -L -o /tmp/reddit_result.txt -w "%{http_code}" -H "User-Agent: $UA" \
-    'https://old.reddit.com/r/SUBREDDIT/hot.json?limit=15'
-  jq -r '.data.children[] | .data | "\(.title)\n   \(.score) pts | \(.num_comments) comments | u/\(.author) | id: \(.id)\n"' /tmp/reddit_result.txt
-  ```
+## How the hop works (manual, via Playwright MCP)
+
+In pi, Playwright MCP tools go through the `mcp` gateway: `mcp({ tool: "playwright_browser_navigate", args: { url } })`, `mcp({ tool: "playwright_browser_evaluate", args: { function } })`.
+
+1. Navigate to `https://html.duckduckgo.com/html/?q=site:TARGETHOST+query`
+2. Evaluate `() => document.querySelector('.result__a')?.href` — a DDG redirect with a `rut` token (`https://duckduckgo.com/l/?uddg=...&rut=...`). The token is required; the bare `/l/?uddg=` without it 400s.
+3. Navigate to that full href. Any real page on the target domain sets the cookie.
+4. Navigate to the real target. Done. If a challenge page appears mid-session, re-do the hop.
+
+## Reddit specifics (deepest case)
+
+Reddit 403s curl **and** fresh browser sessions, but after the hop its public JSON API works — append `.json` to any Reddit URL:
+
+```text
+/r/SUB/hot.json?limit=15                          # swap hot for new/top (top: &t=day|week|month|year|all)
+/r/SUB/comments/POST_ID.json?limit=20&sort=top    # [0]=post, [1]=comment tree
+/r/SUB/search.json?q=QUERY&restrict_sr=on&sort=new&limit=15
+```
+
+- Listings: `.data.children[].data` → `title`, `score`, `num_comments`, `author`, `id`.
+- Threads: `[1].data.children[]` filter `kind == "t1"` → `author`, `score`, `body`, nested `replies` of same shape. Truncate bodies (`.body[:300]`) to keep output readable.
+- Use `www.reddit.com` for browser navigation.
+- More comments than `.json?limit=` allows: scrape the rendered page — `document.querySelectorAll('shreddit-comment')`, fields in attributes `author`, `score`, text in `.md`.
 
 ## Rate limiting
 
-Reddit rate-limits aggressively even once you're unblocked:
+- **No parallel requests.** Sequential with `sleep 2-3` between fetches.
+- Empty response (0 bytes): wait 3-5s, retry. HTTP 429: back off 10-15s.
+- Challenge page mid-session = cookie lapsed → re-do the hop (or delete `~/.cache/blocked-fetch-profile` with fetch.js).
 
-- **Don't fire parallel requests** - run them sequentially with `sleep 2`/`sleep 3` (or brief pauses between navigations). Fetch one listing, parse it, then fetch threads one at a time.
-- Empty response (0 bytes): wait 3-5s and retry. HTTP 429: back off 10-15s. A challenge page mid-session means the cookie lapsed - re-do the DDG hop.
+## Adapted from
+
+[reddit-fetch](https://github.com/ykdojo/claude-code-tips/tree/main/skills/reddit-fetch) by YK Sugi ([ykdojo/claude-code-tips](https://github.com/ykdojo/claude-code-tips)), generalized with permission-pending attribution (source is © YK Sugi, all rights reserved).
