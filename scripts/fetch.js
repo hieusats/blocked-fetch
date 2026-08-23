@@ -85,6 +85,20 @@ const BLOCK_PAT = /you'?ve been blocked|network security|access denied|are you a
       viewport: { width: 1280, height: 800 },
       userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       args: ['--disable-blink-features=AutomationControlled'],
+    }).catch(async e => {
+      // A crashed previous run can leave an orphan browser holding the profile's
+      // singleton lock. Recover once: kill orphans using OUR profile dir, retry.
+      if (/ProcessSingleton|Singleton/i.test(e.message)) {
+        await killProfileOrphans(profileDir);
+        return chromium.launchPersistentContext(profileDir, {
+          executablePath: browserPath,
+          headless: true,
+          viewport: { width: 1280, height: 800 },
+          userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          args: ['--disable-blink-features=AutomationControlled'],
+        });
+      }
+      throw e;
     }).catch(e => die('Failed to launch browser: ' + e.message, 2));
   }
   const page = ctx.pages()[0] || await ctx.newPage();
@@ -152,4 +166,26 @@ function loadOptional(name) {
   const local = path.join(__dirname, '..', 'node_modules', name);
   try { return require(local); } catch {}
   return require(name);
+}
+
+// Kill chromium processes using exactly this profile dir (scoped: never touches
+// the user's real browser). Linux-only; other platforms surface the launch error instead.
+function killProfileOrphans(profileDir) {
+  if (process.platform !== 'linux') return Promise.resolve();
+  return new Promise(resolve => {
+    require('child_process').execFile('ps', ['-eo', 'pid,args'], (e, out) => {
+      if (!e) {
+        const marker = '--user-data-dir=' + profileDir;
+        for (const line of out.split('\n')) {
+          const m = line.match(/^\s*(\d+)\s+(.*)$/);
+          if (!m) continue;
+          const args = m[2];
+          if (args.includes(marker + ' ') || args.endsWith(marker)) {
+            try { process.kill(parseInt(m[1], 10), 'SIGKILL'); } catch {}
+          }
+        }
+      }
+      setTimeout(resolve, 500); // give the OS a beat to release the lock
+    });
+  });
 }
