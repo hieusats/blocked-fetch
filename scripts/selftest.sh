@@ -1,16 +1,31 @@
 #!/usr/bin/env bash
-# Self-test: the canonical checks. Run: bash scripts/selftest.sh (or npm run selftest)
+# selftest.sh — deterministic, offline (spec §9). Live checks: selftest-live.sh
 set -u
 cd "$(dirname "$0")/.."
-fail=0
-check() { local name="$1"; shift
-  if "$@" >/dev/null 2>&1; then echo "PASS $name"; else echo "FAIL $name"; fail=1; fi }
+STATE_DIR="$(mktemp -d)"
+export OPENCRAB_STATE_DIR="$STATE_DIR"
+export OPENCRAB_HOP=off
+SRV_PID=""
+PORT=""
+cleanup() { [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null; rm -rf "$STATE_DIR"; }
+trap cleanup EXIT
+fail() { echo "FAIL: $1"; exit 1; }
 
-check "rung1 curl fast path (example.com)" node scripts/fetch.js https://example.com --text
-check "ladder: reddit json (browser rung)"  node scripts/fetch.js "https://www.reddit.com/r/python/hot.json?limit=3"
-check "selector extraction (browser rung)"  node scripts/fetch.js https://example.com --selector a
+start_fixture() {
+  python3 -u -m http.server 0 --directory testdata >/tmp/oc-srv.log 2>&1 &  # -u: banner is block-buffered when redirected; readiness grep below never sees the port without it
+  SRV_PID=$!
+  for _ in $(seq 1 50); do
+    PORT=$(grep -oE ':[0-9]+' /tmp/oc-srv.log | head -1 | tr -d ':')
+    [ -n "$PORT" ] && curl -sf "http://127.0.0.1:$PORT/index.html" >/dev/null && return 0
+    sleep 0.1
+  done
+  fail "fixture server did not start"
+}
 
-[ -d node_modules/cloakbrowser ] && \
-  check "stealth rung (CloakBrowser)" node scripts/fetch.js "https://www.reddit.com/r/python/hot.json?limit=3" --stealth
+start_fixture
+BASE="http://127.0.0.1:$PORT"
+echo "fixture: $BASE"
 
-exit $fail
+node --test || fail "unit tests"  # no dir arg: Node v26 treats an explicit dir with zero test files as a module entry and fails; bare --test discovers tests/*.test.js
+
+echo "PASS: selftest"

@@ -1,0 +1,3 @@
+User-agent: *
+Disallow: /blocked.html
+Crawl-delay: 5
