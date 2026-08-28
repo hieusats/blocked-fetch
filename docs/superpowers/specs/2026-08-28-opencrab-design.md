@@ -1,6 +1,6 @@
 # opencrab v2.0 — Design Spec
 
-Ngày: 2026-08-28 · Phiên bản spec: v1.4 (adversarial vòng 4 đã sửa) · Nền: council 3-advisor (Appendix A) + vòng lặp tấn công (Appendix B)
+Ngày: 2026-08-28 · Phiên bản spec: v1.5 (adversarial vòng 5 đã sửa) · Nền: council 3-advisor (Appendix A) + vòng lặp tấn công (Appendix B)
 
 ## 1. Mục tiêu & phi mục tiêu
 
@@ -31,7 +31,7 @@ scripts/
                   #   bare array, ÉP RUNG BROWSER như fetch.js cũ — qua opts.forceBrowser);
                   #   --out → file = đúng bytes stdout cũ (PDF là ngoại lệ documented:
                   #   payload text theo §4 — bytes PDF thô không còn đường nào ra);
-                  #   --max-bytes → cắt byte thô như cũ; non-200 → "(http N)"; --wait MS → opts.waitMs;
+                  #   --max-bytes → cắt byte thô như cũ; non-200 → "(http N)"; blocked → stdout rỗng + stderr hint + exit 1; error:msg → stdout rỗng + stderr msg + exit 1 (exit-0-silent-error của v1 là bug, sửa documented); --wait MS → opts.waitMs;
                   #   --stealth/--text/--out 1:1; urls[] → scrape tuần tự (2s giữa URL);
                   #   BLOCKED_FETCH_BROWSER→OPENCRAB_BROWSER (alias chỉ tồn tại trong wrapper)
   opencrab.js     # bin: argv dispatch chỉ 1 dòng → lệnh con
@@ -64,6 +64,7 @@ testdata/         # fixture site: 4 trang liên kết + robots.txt + trang BLOCK
 
 - `opts = { stealth, waitMs (settle, mặc định 1500), waitFor (selector; timeout 30s → proceed + stderr), screenshot (path), conditional: { etag, lastModified }, forceBrowser (chỉ wrapper dùng cho --selector cũ) }` — chỉ thế; robots/delay/limit là trách nhiệm caller (crawl engine).
 - **Predicate bị chặn/leo thang (định nghĩa MỘT LẦN, mọi lệnh dùng chung)**: HTTP ∈ {403, 429, 503} hoặc `BLOCK_PAT.test(body)`.
+- Rung curl: body > 32MB (maxBuffer kế thừa fetch.js) → coi rung curl thất bại, leo browser + stderr note.
 
 - `status` của fetch **không** có `'robots'` — robots là cổng phía caller (crawl engine) chạy trước khi gọi fetch; `'robots'`/`'dup'` chỉ xuất hiện ở dòng index.jsonl.
 - `error:msg` = exception đã sanitize, msg cap 200 ký tự (không process.exit trong lib).
@@ -73,7 +74,7 @@ testdata/         # fixture site: 4 trang liên kết + robots.txt + trang BLOCK
 - Retry: rung browser gặp 429 → backoff 10s, retry đúng 1 lần (giữ hành vi fetch.js); không retry nào khác.
 - Browser rung bắt **cả `page.content()` (html) lẫn innerText** — không thì readability/extract chết ở đúng mục tiêu khó.
 
-**Dòng index.jsonl** (mỗi trang 1 dòng, JSON append; `hash` = sha256 hex của **bytes payload suy ra** (chuỗi markdown/text/json) — deterministic, dùng chung cho dedup + state kể cả khi không ghi file; `status` ngoài enum của fetch còn `'robots'` (bỏ vì robots), `'dup'` (nội dung trùng URL khác) và `'unchanged'` (fetch rồi, hash không đổi); trường không có giá trị = `null`, không omit; dòng đầu = `{"seed":"<url>","ts":<ms>}` cho `--resume` đối chiếu; robots/dup/304 **không** tính là failure; 304 ghi dòng `http:304` — để `--resume` thấy là done):
+**Dòng index.jsonl** (mỗi trang 1 dòng, JSON append; `hash` = sha256 hex của **bytes payload suy ra** (chuỗi markdown/text/json) — deterministic, dùng chung cho dedup + state kể cả khi không ghi file; `status` ngoài enum của fetch còn `'robots'` (bỏ vì robots), `'dup'` (nội dung trùng URL khác) và `'unchanged'` (fetch rồi, hash không đổi); trường không có giá trị = `null`, không omit; dòng đầu = `{"seed":"<normalized url>","ts":<ms>}` (seed đã normalize — chống false-positive khi `--resume` đối chiếu); robots/dup/304 **không** tính là failure; 304 ghi dòng `http:304` — để `--resume` thấy là done):
 
 ```js
 { url, finalUrl, file, title, hash, status, via, ms, ts }
@@ -85,10 +86,12 @@ testdata/         # fixture site: 4 trang liên kết + robots.txt + trang BLOCK
 { "<normalizedUrl>": { hash, etag, lastModified, lastSeen } }  // lastSeen: informational only, không prune ở v2.0
 ```
 
+Ghi atomic (tmp + rename); SIGINT/SIGTERM flush dòng index đang bay trước khi `close()`; đọc state JSON hỏng → coi như rỗng + stderr note.
+
 **Envelope & format (khoá):**
 
 - Payload mặc định = `markdown`; flag tường minh `--text`/`--html` **luôn thắng**; content-type áp khi không có flag: JSON → payload `json` (đã parse), PDF → payload `text` (unpdf). Envelope: `{url, finalUrl, title, status, via, hopped, ms, <payload>}` — `<payload>` là **đúng một khóa tên loại** (`markdown`|`text`|`html`|`json`); envelope không-ok → payload = `null`; mọi trường không có giá trị = `null` (không omit, như index row); `title` từ `<title>` (jsdom hoặc `page.title()`) — `null` iff **nguồn** (content-type) không phải HTML, không phụ thuộc payload flag.
-- `--raw` in payload trần thay envelope; `--out F` ghi đúng format đã chọn (envelope mặc định). `--max-bytes` (mặc định 200000): chế độ envelope chỉ cắt **trường payload** (envelope vẫn là JSON hợp lệ) + stderr warning trỏ `--out`; `--raw` cắt byte như cũ; không bao giờ áp cho file crawl.
+- `--raw` in payload trần thay envelope; `--out F` ghi đúng format đã chọn (envelope mặc định). `--max-bytes` (mặc định 200000): chế độ envelope chỉ cắt **trường payload** (envelope vẫn là JSON hợp lệ) + stderr warning trỏ `--out`; `--raw` cắt byte như cũ; không bao giờ áp cho file (scrape `--out` lẫn file crawl).
 - `search` in bare array `[{title,url,snippet}]`; `search --scrape` in **một envelope JSON mỗi dòng** (JSONL). `map` thuần stdout: không ghi file, không đụng state. `extract` element = `{text, href?}` — `text` từ `textContent` trim (jsdom KHÔNG có innerText!), cap 300 ký tự / 500 phần tử; leo browser theo đúng predicate bị-chặn của fetch (403/429/BLOCK_PAT), **không** leo vì "0 match".
 - `--wait-for SELECTOR` và `--screenshot FILE` **ép rung browser**; screenshot `fullPage: true` mặc định; `--wait-for` timeout 30s → **proceed** (không fail) + stderr note.
 
@@ -108,7 +111,7 @@ opencrab.js extract URL --selector name=CSS [--selector name2=CSS2]   # → {"na
 - `crawl` **bắt buộc** `--out DIR`; stdout chỉ in summary cuối (n ok / n failed / n http / n unchanged (gồm 304 + fetched-unchanged) / n skipped-robots / n dup / n resumed / path index).
 - `--resume` trên DIR có index của **seed khác** → error exit 2.
 - Exit 1 iff **dòng index của lần chạy hiện tại** có `status ∈ {blocked, error:*}` (dòng cũ từ run trước không tính — `--resume` trên DIR có dòng blocked cũ không tự exit 1); `http:NNN` (kể cả 304) vào bucket `n http`/`n unchanged`, **không** phải failure; robots-block-all → exit 0. `scrape`/`extract`: exit 1 iff status ≠ ok (giữ hành vi fetch.js cũ). `map`: trang blocked/error bị **bỏ khỏi mảng stdout** + stderr note; exit 1 iff ≥1 trang fetch bị blocked/error:* (robots-skip không tính). `search` throw (cả 3 engine bị challenge) → stderr + exit 1; `search --scrape`: exit 1 iff throw HOẶC envelope nào status ≠ ok; delay cố định 1500ms giữa các kết quả.
-- Exit codes: `0` ok · `1` một phần/bị chặn · `2` usage/setup (kể cả pidfile conflict).
+- Exit codes: `0` ok · `1` một phần/bị chặn · `2` usage/setup (kể cả pidfile conflict). Cơ chế thoát: bin + wrapper set `process.exitCode` rồi return — **không bao giờ `process.exit()` khi stdout còn treo** (fetch.js cũ truncate envelope khi pipe — thay đổi documented).
 - `package.json`: `engines: {node: ">=18"}`, `bin: {opencrab: "scripts/opencrab.js"}` (shebang + chmod +x), `cloakbrowser` chuyển sang `optionalDependencies` (không kéo 200MB theo mỗi install).
 
 ## 6. Crawl engine
@@ -118,7 +121,7 @@ opencrab.js extract URL --selector name=CSS [--selector name2=CSS2]   # → {"na
 3. **Same-host**: so **hostname chính xác** (ponytail: không PSL/eTLD+1 tới khi mục tiêu thật cần; www↔apex là 2 host khác nhau). Allowed host = host của `finalUrl` của seed (chốt 1 lần sau khi fetch seed). Enqueue iff host(normalized link) == allowed host. Trang có `finalUrl` lệch host: vẫn ghi file/index nhưng **không đóng góp link**.
 4. **Robots**: parse chỉ group `User-agent: *`; robots 404/lỗi fetch → cho phép tất cả. `isAllowed()` dùng chung cho crawl/map/search --scrape; **KHÔNG áp cho `scrape`/`extract` đơn URL** (bản chất công cụ là fetcher chống bot-wall; pattern Reddit `.json` phụ thuộc việc này). UA giữ spoofed mọi rung — leo thang theo thiết kế. **Delay rule (một công thức, đơn vị ms)**: `crawlDelayMs = Crawl-delay(giây) × 1000`; per-request delay = `--aggressive` ? (`--delay` ?? 0) : max(`--delay` ?? 1500, min(crawlDelayMs, 30000)); khi bị cap 30000 in stderr warning. `--aggressive` = bỏ cổng robots + bỏ delay mặc định. `map` dùng cùng công thức.
 5. **File layout**: trang ok → `DIR/<sha1(normalizedUrl)>.md` (payload markdown), `.txt` (PDF → text unpdf), `.json` (chuỗi JSON payload) — **bytes file ≡ chuỗi payload đã hash, không newline cuối**, mọi loại; `file` = path tương đối DIR; robots/dup/unchanged/resumed **không ghi file**. PDF-scan (không text-layer): status `ok`, `file:null`, payload `text` rỗng, stderr warning — không phải failure. **Exact content dedup**: hash trùng URL khác → skip write (dòng `status:'dup'`); **payload rỗng (vd PDF-scan) → không tham gia so hash** (dedup lẫn unchanged) — ghi bình thường, tránh sha256('') giả trùng.
-6. **`--resume`**: **frontier dựng từ mọi URL từng có dòng trong index cũ** (seed bị skip thì link không extract lại được — index là nguồn URL). URL có dòng cũ `status ∈ {ok, http:304, robots}` → terminal: không fetch lại, **không ghi dòng mới** (robots verdict memoized — vào bucket `n skipped-robots`, không đếm `n resumed`); `{blocked, error:*, http≠304}` → fetch lại. `n resumed` chỉ đếm skip `ok`/`http:304`. `--resume` trên DIR không có index → coi như fresh crawl + stderr note. **`--changed-only`**: rung curl gửi `If-None-Match`/`If-Modified-Since` từ state (304 → skip hẳn, ghi dòng `http:304`, bucket `n unchanged`); không 304 hoặc rung browser → fetch, so hash: không đổi → dòng `status:'unchanged'` (bucket `n unchanged`, không ghi file), đổi → ghi bình thường. **304/resume-skip không có body → link cho BFS lấy từ dòng index cũ**; body mới chỉ bổ sung link cho trang thực sự được fetch. **Crawl không cờ: không đọc state** — fetch vô điều kiện, mọi dòng thành công là `ok` (hash-compare chỉ tồn tại dưới `--changed-only`). **State ghi cho mọi dòng `ok`/`http:304`/`unchanged` của mọi lần crawl, bất kể cờ.**
+6. **`--resume`**: **frontier dựng từ mọi URL từng có dòng trong index cũ** (seed bị skip thì link không extract lại được — index là nguồn URL); **mỗi URL lấy dòng CUỐI CÙNG làm verdict** (last row wins — URL từng ok rồi blocked sẽ được fetch lại). URL có dòng cuối `status ∈ {ok, http:304, robots}` → terminal: không fetch lại, **không ghi dòng mới** (robots verdict memoized — vào bucket `n skipped-robots`, không đếm `n resumed`); `{blocked, error:*, http≠304}` → fetch lại. `n resumed` chỉ đếm skip `ok`/`http:304`. `--resume` trên DIR không có index → coi như fresh crawl + stderr note. **`--changed-only`**: rung curl gửi `If-None-Match`/`If-Modified-Since` từ state (304 → skip hẳn, ghi dòng `http:304`, bucket `n unchanged`); không 304 hoặc rung browser → fetch, so hash: không đổi → dòng `status:'unchanged'` (bucket `n unchanged`, không ghi file), đổi → ghi bình thường. **304/resume-skip không có body → link cho BFS lấy từ dòng index cũ**; body mới chỉ bổ sung link cho trang thực sự được fetch. **Crawl không cờ: không đọc state** — fetch vô điều kiện, mọi dòng thành công là `ok` (hash-compare chỉ tồn tại dưới `--changed-only`). **State ghi cho mọi dòng `ok`/`http:304`/`unchanged` của mọi lần crawl, bất kể cờ.**
 7. Cookie lapse giữa chừng → ghi status, tiếp tục, không retry-storm.
 8. **`--include/--exclude`**: glob naive → RegExp (`*`→`.*`, `?`→`.`) match trên **URL tuyệt đối đã normalize**; flag lặp lại được (OR trong cùng flag); URL đi qua iff (match ≥1 include nếu có) AND (không match exclude nào); không thêm dep — ponytail: ceiling chấp nhận, thay picomatch khi cần thật.
 
@@ -134,7 +137,7 @@ opencrab.js extract URL --selector name=CSS [--selector name2=CSS2]   # → {"na
 - Package/repo/dir/dev-remote → `opencrab` v2.0.0; GitHub rename làm thủ công bởi user.
 - **SKILL.md description phải giữ cả hai bề mặt trigger**: triệu chứng bot-blocked (403, captcha, "network security") LẪN động từ crawl/scrape/search — nếu mất một trong hai, skill ngừng kích hoạt đúng.
 - **Xoá `~/.pi/agent/skills/blocked-fetch` lúc install opencrab**: postinstall script tự xoá nếu thấy + log; README ghi lệnh fallback thủ công — 2 skill cùng trigger sẽ đánh nhau.
-- Profile browser: dời hẳn vào `~/.local/state/opencrab/profile{,-stealth}` (cùng lý do tmpfiles với state — cookie là asset đắt nhất, không để nơi bị xén); migrate-on-first-run từ `~/.cache/blocked-fetch-profile*` nếu còn.
+- Profile browser: `$OPENCRAB_STATE_DIR/profile{,-stealth}` (mặc định `~/.local/state/opencrab/profile{,-stealth}` — cùng cơ chế override với pidfile nên hai selftest song song không chung profile; cùng lý do tmpfiles: cookie là asset đắt nhất, không để nơi bị xén); migrate-on-first-run từ `~/.cache/blocked-fetch-profile*` (nguồn giữ nguyên literal) — copy → tmp → rename (atomic, crash giữa chừng không tạo profile nửa vời).
 - Env: `BLOCKED_FETCH_BROWSER` → `OPENCRAB_BROWSER` (không giữ alias); `CLOAKBROWSER_*` giữ nguyên (của dependency).
 
 ## 9. Testing
@@ -142,7 +145,7 @@ opencrab.js extract URL --selector name=CSS [--selector name2=CSS2]   # → {"na
 - Fixture `testdata/` + `python3 -m http.server` (python 3.14 có sẵn — đã verify):
   - **Manifest (khoá)**: `index.html` (seed) link → `a.html`, `b.html`, `c.html`, `d.html` (d = tiếng Việt) + `blocked.html` (robots-disallow path, body khớp BLOCK_PAT, link từ index — test robots-skip ở crawl/map VÀ escalation khi scrape trực tiếp); `doc.pdf` truy cập trực tiếp (không link). `robots.txt`: `Disallow: /blocked.html` + `Crawl-delay: 5`.
   - Kỳ vọng BLOCK_PAT page: fixture chạy với `OPENCRAB_HOP=off` (lib coi hop không khả dụng — **zero network call**, không đốt rate-limit IP vào DDG/Bing mỗi selftest) → escalation curl→browser xảy ra (log line), status cuối `'blocked'`, exit 1 — assertion deterministic cho nửa dưới của ladder. Bản test hop thật nằm ở selftest-live.sh.
-- `selftest.sh` = fixture tests (deterministic, offline) làm mặc định; các check live (Reddit/hop/stealth) tách `selftest-live.sh` chạy tay.
+- `selftest.sh` = fixture tests (deterministic, offline) làm mặc định; các check live (Reddit/hop/stealth) tách `selftest-live.sh` chạy tay. Server fixture: `python3 -m http.server 0` (port ephemeral parse từ stderr — không đụng port 8000 của dev server), `trap 'kill $SRV_PID 2>/dev/null; rm -rf $STATE_DIR' EXIT` (không leak process/state).
 - Verify per bước implementation: map = 5 hàng, blocked bị bỏ; crawl = **5 file (kể cả seed) + index + 1 skipped-robots, exit 0**; inter-request ≥ 5000ms (Crawl-delay fixture); scrape envelope chứa heading; scrape `blocked.html` → `blocked`, exit 1; scrape `doc.pdf` → envelope chứa text PDF; extract JSON đúng shape; `--resume` → `n resumed` = **5** + `n skipped-robots` = 1 (memo), **không dòng index mới**; `--changed-only` chạy 2 lần → lần 2 toàn bộ `unchanged`; selftest export `OPENCRAB_STATE_DIR=$(mktemp -d)`.
 
 ## 10. Phasing
@@ -187,4 +190,5 @@ opencrab.js extract URL --selector name=CSS [--selector name2=CSS2]   # → {"na
 - **Vòng 3** (impl-tdd reviewer b45ca03f + oracle-drift 184240ce, FIX_FIRST × 2): 24 findings — đáng kể: code block §4 thiếu 3 trường (artifact vòng 2: sửa bullets, quên block), `opts` surface chưa định nghĩa, pidfile over-reach (khóa cả rung curl) → lazy acquire, v2.0 monolith → slice S1/S2/S3, đơn vị giây→ms của Crawl-delay, wrapper stdout-format table, JSON file layout crawl, fixture manifest khoá + `OPENCRAB_STATE_DIR` + `OPENCRAB_HOP=off`, bucket `n resumed` + status `unchanged`, PDF-scan status `ok` thống nhất (parent arbitrate giữa 2 advisor), exit code scrape/search, predicate leo thang chuẩn hoá {403,429,503}+BLOCK_PAT. Tất cả sửa trong v1.3.
 - **Vòng 3.5** (parent fresh-eyes full-read): 3 chỉnh đính — crawl kỳ vọng 5 file thay vì 4 (seed cũng được fetch+ghi, khớp map 5 hàng), bỏ sót "cần JS" ở §3 (mâu thuẫn predicate §4), pidfile risk thêm điều kiện "cần browser".
 - **Vòng 4** (crossref dfc9d80b + dryrun bcd75dc9, FIX_FIRST × 2): 18 findings — P1: wrapper --selector ép browser cũ (opts.forceBrowser), via khi mọi rung thất bại = rung cuối được thử, **resume frontier dựng từ index cũ + memo robots verdict** (không vậy §9 không đạt được), **304 không body → BFS link từ index cũ**; P2: `ok` ≡ status, khóa payload = tên loại + envelope không-ok null-semantics, map exit + bỏ hàng blocked khỏi stdout (parent arbitrate giữa 2 advisor), search --scrape exit tổ hợp, exit tính trên dòng run hiện tại, title null theo NGUỒN không theo flag, pidfile path tường minh, wrapper compact-if-JSON + PDF documented-change, payload rỗng không so hash, plain-crawl không đọc state, --resume không index = fresh. Tất cả sửa trong v1.4.
-- **Vòng 5**: đang chờ.
+- **Vòng 5** (sysmiss d26e5aab, FIX_FIRST): 10 findings — P1: resume **last-row-wins** (URL nhiều dòng lịch sử), selftest port ephemeral + trap teardown, profile theo `$OPENCRAB_STATE_DIR` (2 selftest song song không SIGKILL browser nhau), state atomic tmp+rename + flush SIGINT + đọc hỏng = rỗng, cấm `process.exit()` khi stdout treo (bug truncate pipe kế thừa v1), wrapper mapping stdout cho blocked/error (exit-0-silent-error v1 = bug sửa documented); P2: seed dòng đầu normalized, maxBuffer 32MB ceiling + leo browser, --max-bytes không áp --out, migrate profile atomic. Tất cả sửa trong v1.5.
+- **Vòng 6**: đang chờ.
