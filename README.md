@@ -120,7 +120,22 @@ Reset session profiles: `rm -rf ~/.local/state/opencrab/profile*`.
 
 ## Benchmark
 
-Measured head-to-head vs Firecrawl (same machine, interleaved runs): [docs/BENCHMARK.md](docs/BENCHMARK.md) — single-page latency parity or better, anti-bot JSON where Firecrawl got 403'd, $0 and unthrottled; Firecrawl wins bulk crawl throughput (parallel infra vs polite sequential by design).
+Measured head-to-head vs Firecrawl — same machine, interleaved runs, real API (2026-08-29; Ryzen 7 7800X3D, Node 26, residential network). Full data & methodology: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+
+| Case | Firecrawl | opencrab | Winner |
+|---|---|---|---|
+| Static HTML | 1 186 ms | **718 ms** | opencrab 1.7× |
+| Heavy HTML (Wikipedia) | **1 636 ms** | 3 348 ms | Firecrawl 2× |
+| **Anti-bot JSON (Reddit)** | **403 — failed** | **4 272 ms, ok 3/3** | **opencrab** |
+| Instagram profile | **403 — failed** | **1.3 s via curl, 199 KB** | **opencrab** |
+| X profile | 7.7 s, 1.6 KB shell | 2.2 s via curl, 101 KB | **opencrab** |
+| Quora / Booking.com | ok, deep | Quora shallow / blocked | Firecrawl |
+| Yelp (hardest) | 403 | blocked (honest) | tie |
+| PDF extract | 2 398 ms | **1 171 ms** | opencrab 2× |
+| Cloudflare challenge | `success:true` w/ 17 chars of challenge text | honest `status:"blocked"` | opencrab honesty |
+| Map 1 000-page site | **9.3 s / 1 200 links** (parallel) | 130 s / 100 links (polite sequential) | Firecrawl |
+
+**Anti-bot real-content score: opencrab 4/7 vs Firecrawl 2/7** — Reddit and Instagram 403'd Firecrawl's own scrapers while opencrab's curl/browser rungs passed. Firecrawl's `success:true` is not a content guarantee (returned Amazon's 404 page and Cloudflare challenge text as "success"); opencrab reports honest statuses for agent branching. $0, local, unthrottled (vs free tier: 10 scrape/min).
 
 ## Attribution
 
