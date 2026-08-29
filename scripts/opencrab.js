@@ -29,7 +29,7 @@ async function cmdScrape(argv) {
   const title = /html/i.test(r.contentType) ? titleOf(r.html ?? r.bytes.toString('utf8')) : null;
   const payload = r.ok ? await derivePayload(r, flags) : { key: null, val: null };
   const envelope = { url: flags.url, finalUrl: r.finalUrl, title, status: r.status, via: r.via, hopped: r.hopped, ms: r.ms };
-  if (payload.key) envelope[payload.key] = payload.val;
+  envelope[payload.key ?? 'payload'] = payload.val; // không-ok → "payload": null (spec §4: không omit)
   const out = flags.raw ? (payload.raw ?? (payload.val == null ? '' : typeof payload.val === 'string' ? payload.val : JSON.stringify(payload.val))) : JSON.stringify(envelope);
   emit(out, flags);
   await fetcher.close();
