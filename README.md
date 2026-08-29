@@ -11,6 +11,15 @@ Fetch pages and data from websites that block curl/bots — 403s, captcha, "bloc
 
 Adapted and generalized for [pi](https://github.com/badlogic/pi-mammoth) from the [reddit-fetch skill](https://github.com/ykdojo/claude-code-tips/tree/main/skills/reddit-fetch) in [ykdojo/claude-code-tips](https://github.com/ykdojo/claude-code-tips) (© YK Sugi, all rights reserved).
 
+## Why agents pick opencrab
+
+Measured head-to-head vs Firecrawl — same machine, interleaved runs, real API (full data & methodology in [Benchmark](#benchmark)):
+
+- **Anti-bot real content: 4/7 vs 2/7.** Reddit and Instagram 403'd Firecrawl's own scrapers; opencrab's curl/browser rungs passed 3/3 runs each — Reddit in 4 s, Instagram in 1.3 s.
+- **Faster single pages where it counts:** 1.7× on static HTML (718 vs 1 186 ms), 2× on PDF extraction (1 171 vs 2 398 ms).
+- **Honest statuses.** Firecrawl returned Amazon's 404 page and 17 chars of Cloudflare challenge text as `success:true`; opencrab reports `blocked` / `http:404` so your agent can branch without re-validating content.
+- **$0, local, unthrottled.** No API key, no 10-scrape/min free-tier ceiling, nothing leaves the machine. Polite by default (robots + Crawl-delay) — `--aggressive` when you own the target.
+
 ## Install
 
 ```bash
@@ -20,23 +29,63 @@ npm install
 npm link          # optional — puts the `opencrab` command on PATH
 ```
 
-- `playwright-core` and `cloakbrowser` are **optional dependencies**: installed by default, skipped with `npm install --omit=optional` (the cloakbrowser binary alone is ~200MB). The browser rung needs playwright-core; `--stealth` needs cloakbrowser — both degrade to a clear setup error (exit 2) when missing.
-- **Node version:** the deps realistically need Node ≥ 20 (jsdom/undici/unpdf engines ≥ 22, playwright-core ≥ 20). On Node 18 npm silently skips those browser optional deps, so the browser rung degrades to a clear exit-2 message. The `engines` field stays `>=18` (spec-pinned; the owner may bump it later).
-- The postinstall hook removes the legacy `~/.pi/agent/skills/blocked-fetch` skill if present — two skills with the same triggers fight each other. Manual fallback: `rm -rf ~/.pi/agent/skills/blocked-fetch`.
+That is the standard flow (clone → `npm install` runs deps + the postinstall hook; `npm link` registers the `bin`). Pick a [profile](#setup-step-by-step) if you want a lean install.
 
-The browser rung needs a chromium/chrome on the system. Auto-detection order:
+### Install for your agent harness
 
-1. `OPENCRAB_BROWSER` env var, if set
-2. System browser: `/usr/bin/chromium`, `/usr/bin/chromium-browser`, `/usr/bin/google-chrome-stable`, `/usr/bin/google-chrome`, `/usr/bin/brave-browser`
-3. Playwright-bundled chromium in `~/.cache/ms-playwright/`
-
-Legacy alias: `BLOCKED_FETCH_BROWSER` still works **through the v1 wrapper only** (`scripts/fetch.js` translates it to `OPENCRAB_BROWSER`; if both are set, `OPENCRAB_BROWSER` wins). The lib reads `OPENCRAB_BROWSER` exclusively.
-
-If none exists, either install your distro's chromium (e.g. Arch: `sudo pacman -S chromium`, Debian/Ubuntu: `sudo apt install chromium`) or let Playwright download one (no sudo needed):
+opencrab follows the [Agent Skills](https://agentskills.io) standard (`SKILL.md` + CLI), so it drops into any skills-aware harness:
 
 ```bash
-npx playwright-core install chromium   # headless shell into ~/.cache/ms-playwright
+# pi — package install (pinned tag; pi runs npm install in the clone for you)
+pi install git:github.com/hieusats/opencrab@v2.0.0
+
+# Claude Code — clone into the skills dir
+git clone https://github.com/hieusats/opencrab ~/.claude/skills/opencrab && cd ~/.claude/skills/opencrab && npm install && npm link
+
+# any machine, no harness — global CLI straight from git
+npm install -g github:hieusats/opencrab
 ```
+
+Other skills-standard harnesses (Codex, etc.): clone or symlink the repo into their skills directory the same way, then `npm install` inside it.
+
+## Setup, step by step
+
+**1. Node ≥ 20 recommended.** Deps realistically need Node ≥ 20 (jsdom/undici/unpdf engines ≥ 22, playwright-core ≥ 20). On Node 18 npm silently skips the browser optional deps — the rest works and the browser rung degrades to a clear exit-2 message. (`engines` stays `>=18` — spec-pinned.)
+
+**2. Pick an install profile:**
+
+```bash
+npm install                      # full (default): browser + stealth rungs included
+npm install --omit=optional      # lean: curl rung + text/markdown/PDF only
+                                 # (cloakbrowser binary alone is ~200 MB)
+```
+
+Missing pieces never fail silently: browser rung without playwright-core → exit 2; `--stealth` without cloakbrowser → exit 2 — both with a clear setup message.
+
+**3. Provide a chromium for the browser rung** (skip on lean installs). Auto-detection order:
+
+1. `OPENCRAB_BROWSER=/path/to/chrome` env var — highest priority
+2. System browser — first hit of: `/usr/bin/chromium`, `/usr/bin/chromium-browser`, `/usr/bin/google-chrome-stable`, `/usr/bin/google-chrome`, `/usr/bin/brave-browser`
+3. Playwright-bundled chromium in `~/.cache/ms-playwright/`
+
+Get one, any way:
+
+```bash
+sudo pacman -S chromium                  # Arch
+sudo apt install chromium                # Debian/Ubuntu
+npx playwright-core install chromium     # no sudo — headless shell into ~/.cache/ms-playwright
+```
+
+Legacy alias: `BLOCKED_FETCH_BROWSER` is honored by the v1 wrapper (`scripts/fetch.js`) only — translated to `OPENCRAB_BROWSER`, which wins if both are set. The lib reads `OPENCRAB_BROWSER` exclusively.
+
+**4. Verify:**
+
+```bash
+opencrab scrape https://example.com      # envelope JSON, "via":"curl"
+npm run selftest                         # offline e2e (~2 min)
+```
+
+Note: the postinstall hook removes the legacy `~/.pi/agent/skills/blocked-fetch` skill if present — two skills with the same triggers fight each other. Manual fallback: `rm -rf ~/.pi/agent/skills/blocked-fetch`.
 
 ### CloakBrowser — optional stealth rung 4
 
