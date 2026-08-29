@@ -172,7 +172,7 @@ Reset session profiles: `rm -rf ~/.local/state/opencrab/profile*`.
 Measured head-to-head vs Firecrawl — same machine, interleaved runs, real API (2026-08-29; Ryzen 7 7800X3D, Node 26, residential network). Full data & methodology: [docs/BENCHMARK.md](docs/BENCHMARK.md).
 
 | Case | Firecrawl | opencrab | Winner |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Static HTML | 1 186 ms | **718 ms** | opencrab 1.7× |
 | Heavy HTML (Wikipedia) | **1 636 ms** | 3 348 ms | Firecrawl 2× |
 | **Anti-bot JSON (Reddit)** | **403 — failed** | **4 272 ms, ok 3/3** | **opencrab** |
