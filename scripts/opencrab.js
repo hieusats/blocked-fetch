@@ -83,7 +83,7 @@ async function cmdCrawl(argv) {
   o.outDir = out;
   require('../lib/crawl').crawlBFS(url, o).then(sum => {
     console.log(`ok=${sum.ok} failed=${sum.failed} http=${sum.http} unchanged=${sum.unchanged} robots=${sum.skippedRobots} dup=${sum.dup} resumed=${sum.resumed} index=${require('path').join(out, 'index.jsonl')}`);
-    if (!process.exitCode) process.exitCode = sum.failed ? 1 : 0;
+    if (!process.exitCode) process.exitCode = (sum.failed || sum.seedFailed) ? 1 : 0;
   }).catch(e => { if (e instanceof fetcher.SetupError) { console.error(e.message); process.exitCode = 2; } else { console.error('[!] ' + e.message); process.exitCode = 1; } });
 }
 async function cmdMap(argv) { // map = crawlBFS({linksOnly:true}) — thuần stdout (spec §3/§4)
@@ -97,7 +97,7 @@ async function cmdMap(argv) { // map = crawlBFS({linksOnly:true}) — thuần st
     if (v !== null && !Number.isFinite(v)) { console.error(k + ' expects a number'); process.exitCode = 2; return; }
   require('../lib/crawl').crawlBFS(url, o).then(({ pages, sum }) => {
     console.log(JSON.stringify(pages));
-    if (!process.exitCode) process.exitCode = sum.failed ? 1 : 0;
+    if (!process.exitCode) process.exitCode = (sum.failed || sum.seedFailed) ? 1 : 0;
   }).catch(e => { if (e instanceof fetcher.SetupError) { console.error(e.message); process.exitCode = 2; } else { console.error('[!] ' + e.message); process.exitCode = 1; } });
 }
 // Task 9: search (3-engine + --scrape JSONL) + extract (named selectors, jsdom) — spec §4/§5

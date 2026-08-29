@@ -79,3 +79,13 @@ test('changed-only KHÔNG --resume trên server IMS: đủ coverage, không phá
   assert.match(out2, /unchanged=3/); // seed 304 → enqueue a,b từ index cũ → 304 hết
   assert.strictEqual(fs.readFileSync(path.join(dir, 'index.jsonl'), 'utf8').trim().split('\n').length, 4, 'index không bị phá');
 });
+
+test('seed fail cứng (404) → exit 1, không còn exit 0 cho crawl rỗng', { timeout: 60000 }, async t => {
+  const s = await serveFixture(); t.after(() => s.close());
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-t8f-'));
+  const st = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-stf-'));
+  const err = await run(['crawl', s.url + '/nope.html', '--out', dir, '--delay', '0'], { OPENCRAB_STATE_DIR: st }).then(() => null, e => e);
+  assert.ok(err, 'phải exit khác 0');
+  assert.strictEqual(err.code, 1);
+  assert.match(String(err.stdout), /failed=0 http=1/);
+});
