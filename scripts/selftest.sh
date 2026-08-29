@@ -26,6 +26,21 @@ start_fixture
 BASE="http://127.0.0.1:$PORT"
 echo "fixture: $BASE"
 
+run() { "$@" >/tmp/oc-out.json 2>/tmp/oc-err.txt; echo $?; }
+# scrape envelope html
+[ "$(run node scripts/opencrab.js scrape "$BASE/a.html")" = "0" ] || fail "scrape exit"
+grep -q '"status":"ok"' /tmp/oc-out.json || fail "envelope status"
+grep -q 'Page A' /tmp/oc-out.json || fail "envelope markdown"
+node -e "const e=JSON.parse(require('fs').readFileSync('/tmp/oc-out.json'));if(e.title!=='Page A'||typeof e.markdown!=='string')process.exit(1)" || fail "envelope shape"
+# scrape blocked (hop off)
+[ "$(run node scripts/opencrab.js scrape "$BASE/blocked.html")" = "1" ] || fail "blocked exit 1"
+grep -q '"status":"blocked"' /tmp/oc-out.json || fail "blocked status"
+# scrape PDF
+[ "$(run node scripts/opencrab.js scrape "$BASE/doc.pdf")" = "0" ] || fail "pdf exit"
+grep -qi 'opencrab' /tmp/oc-out.json || fail "pdf text"
+# scrape --raw
+node scripts/opencrab.js scrape "$BASE/doc.pdf" --raw | grep -qi opencrab || fail "--raw payload"
+
 node --test || fail "unit tests"  # no dir arg: Node v26 treats an explicit dir with zero test files as a module entry and fails; bare --test discovers tests/*.test.js
 
 echo "PASS: selftest"
