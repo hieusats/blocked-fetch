@@ -62,9 +62,9 @@ function parseScrapeFlags(argv) {
   if (!/^https?:\/\//.test(f.url)) throw new fetcher.SetupError('scrape: cần URL http(s)');
   return f;
 }
-// Stub — Task 7 thay bằng hiện thực thật:
-async function cmdCrawl() { die2('crawl: chưa có — đợi Task 7'); }
-async function cmdMap() { die2('map: chưa có — đợi Task 7'); }
+// Task 7: crawl/map hiện thực thật trong lib/crawl.js (engine + summary print)
+async function cmdCrawl(argv) { require('../lib/crawl').cmdCrawl(argv); }
+async function cmdMap(argv) { require('../lib/crawl').cmdMap(argv); }
 // Stub — Task 9 thay bằng hiện thực thật:
 async function cmdSearch() { die2('search: chưa có — đợi Task 9'); }
 async function cmdExtract() { die2('extract: chưa có — đợi Task 9'); }

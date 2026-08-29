@@ -45,11 +45,22 @@ node scripts/opencrab.js scrape "$BASE/doc.pdf" --raw | grep -qi opencrab || fai
 # wrapper (Task 6): stdout format cũ (spec §3)
 node scripts/fetch.js "$BASE/a.html" | grep -q 'Page A' || fail "wrapper raw"
 node scripts/fetch.js "$BASE/a.html" --text | grep -q 'Page A' || fail "wrapper --text"
-# wrapper --selector assertion: T7 (lib/crawl.runExtract) re-adds it — capability lands with T7
+node scripts/fetch.js "$BASE/a.html" --selector 'h1' | grep -q '"text":"Page A"' || fail "wrapper --selector"
 OUT=$(node scripts/fetch.js "$BASE/blocked.html" 2>/dev/null); RC=$?
 [ $RC = 1 ] && [ -z "$OUT" ] || fail "wrapper blocked empty+1"
 OUT404=$(node scripts/fetch.js "$BASE/nope.html"); RC404=$?
 [ $RC404 = 1 ] || fail "wrapper 404 exit"
+
+# crawl (Task 7): POLITE mặc định — robots được tôn trọng: 5 file + 1 robots-skip, exit 0 (~25s: Crawl-delay 5s)
+CRAWL_DIR="$STATE_DIR/crawl"
+[ "$(run node scripts/opencrab.js crawl "$BASE/" --out "$CRAWL_DIR")" = "0" ] || fail "crawl exit"
+grep -q 'ok=5 failed=0 http=0 unchanged=0 robots=1 dup=0 resumed=0' /tmp/oc-out.json || fail "crawl summary"
+NFILES=$(find "$CRAWL_DIR" -type f ! -name 'index.jsonl' | wc -l)
+[ "$NFILES" = "5" ] || fail "crawl payload files ($NFILES != 5)"
+grep -q '"status":"robots"' "$CRAWL_DIR/index.jsonl" || fail "crawl robots row"
+# map (Task 7): linksOnly — 5 hàng [{url,title}] stdout, exit 0
+[ "$(run node scripts/opencrab.js map "$BASE/")" = "0" ] || fail "map exit"
+node -e "const a=JSON.parse(require('fs').readFileSync('/tmp/oc-out.json','utf8'));if(!Array.isArray(a)||a.length!==5||a.some(p=>!p.url||!p.title))process.exit(1)" || fail "map rows"
 
 node --test || fail "unit tests"  # no dir arg: Node v26 treats an explicit dir with zero test files as a module entry and fails; bare --test discovers tests/*.test.js
 
