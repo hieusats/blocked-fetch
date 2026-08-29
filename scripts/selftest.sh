@@ -65,6 +65,12 @@ grep -q '"status":"robots"' "$CRAWL_DIR/index.jsonl" || fail "crawl robots row"
 [ "$(run node scripts/opencrab.js map "$BASE/")" = "0" ] || fail "map exit"
 node -e "const a=JSON.parse(require('fs').readFileSync('/tmp/oc-out.json','utf8'));if(!Array.isArray(a)||a.length!==5||a.some(p=>!p.url||!p.title))process.exit(1)" || fail "map rows"
 
+# extract (Task 9): named selectors qua jsdom + cross-host href (spec §4)
+[ "$(run node scripts/opencrab.js extract "$BASE/a.html" --selector h1=h1 --selector p=p)" = "0" ] || fail "extract exit"
+node -e "const j=JSON.parse(require('fs').readFileSync('/tmp/oc-out.json'));if(JSON.stringify(j.h1)!=='[{\"text\":\"Page A\"}]'||!j.p[0].text.includes('Alpha'))process.exit(1)" || fail "extract selectors"
+[ "$(run node scripts/opencrab.js extract "$BASE/c.html" --selector ext=a)" = "0" ] || fail "extract c exit"
+grep -q '"href":"https://example.com/external"' /tmp/oc-out.json || fail "extract cross-host href"
+
 node --test || fail "unit tests"  # no dir arg: Node v26 treats an explicit dir with zero test files as a module entry and fails; bare --test discovers tests/*.test.js
 
 echo "PASS: selftest"

@@ -21,19 +21,23 @@ async function derivePayload(r, flags) {
 function safeJson(raw) { try { return JSON.parse(raw); } catch { console.error('[#] JSON parse failed → HTML path'); return null; } }
 // derivePayload: `if (ctJson(...)) { const j = safeJson(...); if (j !== null) return { key: 'json', val: j }; }` → rơi xuống dòng markdown (spec §4: parse-fail → HTML path)
 
-async function cmdScrape(argv) {
-  const flags = parseScrapeFlags(argv); // --raw --text --html --out --max-bytes --wait-for --screenshot --stealth
-  let r;
-  try { r = await fetcher.fetch(flags.url, { stealth: flags.stealth, waitFor: flags.waitFor, screenshot: flags.screenshot, forceBrowser: !!(flags.waitFor || flags.screenshot) }); }
-  catch (e) { if (e instanceof fetcher.SetupError) return die2(e.message); throw e; }
+async function scrapeOne(url, flags) { // lõi cmdScrape tách hàm (Task 9): fetch + payload + envelope; TRẢ VỀ, KHÔNG in — cmdScrape/cmdSearch tự in (spec §6.4)
+  const r = await fetcher.fetch(url, { stealth: flags.stealth, waitFor: flags.waitFor, screenshot: flags.screenshot, forceBrowser: !!(flags.waitFor || flags.screenshot) });
   const title = /html/i.test(r.contentType) ? titleOf(r.html ?? r.bytes.toString('utf8')) : null;
   const payload = r.ok ? await derivePayload(r, flags) : { key: null, val: null };
-  const envelope = { url: flags.url, finalUrl: r.finalUrl, title, status: r.status, via: r.via, hopped: r.hopped, ms: r.ms };
+  const envelope = { url, finalUrl: r.finalUrl, title, status: r.status, via: r.via, hopped: r.hopped, ms: r.ms };
   envelope[payload.key ?? 'payload'] = payload.val; // không-ok → "payload": null (spec §4: không omit)
-  const out = flags.raw ? (payload.raw ?? (payload.val == null ? '' : typeof payload.val === 'string' ? payload.val : JSON.stringify(payload.val))) : JSON.stringify(envelope);
+  return { envelope, raw: payload.raw, val: payload.val }; // raw = body gốc cho --raw/.json, val = payload (spec §4)
+}
+async function cmdScrape(argv) {
+  const flags = parseScrapeFlags(argv); // --raw --text --html --out --max-bytes --wait-for --screenshot --stealth
+  let envelope, raw, val;
+  try { ({ envelope, raw, val } = await scrapeOne(flags.url, flags)); }
+  catch (e) { if (e instanceof fetcher.SetupError) return die2(e.message); throw e; }
+  const out = flags.raw ? (raw ?? (val == null ? '' : typeof val === 'string' ? val : JSON.stringify(val))) : JSON.stringify(envelope);
   emit(out, flags);
   await fetcher.close();
-  process.exitCode = r.ok ? 0 : 1;
+  process.exitCode = envelope.status === 'ok' ? 0 : 1;
 }
 function titleOf(html) { const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i); return m ? m[1].trim() : null; }
 function emit(text, flags) {
@@ -63,11 +67,40 @@ function parseScrapeFlags(argv) {
   return f;
 }
 // Task 7: crawl/map hiện thực thật trong lib/crawl.js (engine + summary print)
-async function cmdCrawl(argv) { require('../lib/crawl').cmdCrawl(argv); }
-async function cmdMap(argv) { require('../lib/crawl').cmdMap(argv); }
-// Stub — Task 9 thay bằng hiện thực thật:
-async function cmdSearch() { die2('search: chưa có — đợi Task 9'); }
-async function cmdExtract() { die2('extract: chưa có — đợi Task 9'); }
+async function cmdCrawl(argv) { return require('../lib/crawl').cmdCrawl(argv); } // return: promise lan lên top-level catch
+async function cmdMap(argv) { return require('../lib/crawl').cmdMap(argv); }
+// Task 9: search (3-engine + --scrape JSONL) + extract (named selectors, jsdom) — spec §4/§5
+async function cmdExtract(argv) { // element {text, href?} — textContent (jsdom không có innerText), cap 300/500 (spec §4)
+  const pairs = []; let url = '';
+  for (let i = 0; i < argv.length; i++) { const a = argv[i];
+    if (a === '--selector') { const s = argv[++i], eq = s.indexOf('='); pairs.push({ name: s.slice(0, eq), css: s.slice(eq + 1) }); } else url = a; }
+  if (!url || !pairs.length) { die2('Usage: extract URL --selector name=CSS [--selector name2=CSS2]'); return; }
+  const ok = await require('../lib/crawl').runExtract(url, pairs, {}, out => console.log(JSON.stringify(out)));
+  await fetcher.close();
+  process.exitCode = ok ? 0 : 1;
+}
+async function cmdSearch(argv) { // bare array; --scrape → JSONL envelope + delay 1500ms (spec §5)
+  let q = '', scrape = false, limit = 10;
+  for (let i = 0; i < argv.length; i++) { const a = argv[i];
+    if (a === '--scrape') scrape = true; else if (a === '--limit') limit = parseInt(argv[++i], 10); else q = q ? q + ' ' + a : a; }
+  if (!q) { die2('Usage: search "query" [--limit N] [--scrape]'); return; }
+  let sr;
+  try { sr = await fetcher.searchResults(q, { limit }); }
+  catch (e) { console.error('[!] ' + e.message); process.exitCode = 1; await fetcher.close(); return; }
+  if (!scrape) { console.log(JSON.stringify(sr.results)); await fetcher.close(); return; }
+  let anyBad = false;
+  for (let i = 0; i < sr.results.length; i++) {
+    const u = sr.results[i].url; // robots gate cho search --scrape (spec §6.4)
+    const rb = await require('../lib/crawl').loadRobots(new URL(u).origin).catch(() => null);
+    if (rb && !rb.allowed(new URL(u).pathname)) { console.error('[#] robots: skip ' + u); continue; }
+    const { envelope: env } = await scrapeOne(u, {}); // scrapeOne TRẢ VỀ envelope, KHÔNG in — cmdSearch tự in (hợp đồng pin)
+    console.log(JSON.stringify(env));
+    if (!env || env.status !== 'ok') anyBad = true;
+    if (i < sr.results.length - 1) await new Promise(r => setTimeout(r, 1500));
+  }
+  await fetcher.close();
+  process.exitCode = anyBad ? 1 : 0;
+}
 
 (async () => {
   const [cmd, ...rest] = process.argv.slice(2);
