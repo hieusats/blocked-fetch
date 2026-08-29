@@ -45,3 +45,17 @@ test('resume seed khác index → exit 2', { timeout: 240000 }, async t => {
 });
 // Lưu ý: fixture Crawl-delay 5s → mỗi lần crawl polite ~25-30s; timeout 240s dư dả. node:http không hỗ trợ IMS
 // → changed-only đi đường fetch-đầy-đủ + so hash (không 304) — đúng như engine xử lý hai nhánh.
+
+test('NaN numeric flags → exit 2 (usage)', { timeout: 60000 }, async t => {
+  const http = require('http');
+  const srv = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<a href="/x">x</a>'); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const s = { url: `http://127.0.0.1:${srv.address().port}` };
+  t.after(() => new Promise(r => srv.close(r)));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-t8d-'));
+  const st = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-std-'));
+  for (const bad of [['--limit', 'abc'], ['--depth', 'abc'], ['--delay', 'abc']]) {
+    const err = await run(['crawl', s.url + '/', '--out', dir, ...bad], { OPENCRAB_STATE_DIR: st }).catch(e => e);
+    assert.strictEqual(err.code, 2, bad.join('=') + ' → ' + err.code);
+  }
+});

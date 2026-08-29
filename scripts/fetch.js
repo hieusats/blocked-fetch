@@ -18,6 +18,7 @@ const { htmlToText, pdfToText } = require('../lib/md');
     else urls.push(a); }
   if (!urls.length || urls.some(u => !/^https?:\/\//.test(u))) { console.error('Usage: node scripts/fetch.js <url> [url2 ...] [--text] [--stealth] [--selector CSS] [--out FILE] [--max-bytes N] [--wait MS]'); process.exitCode = 2; return; }
   if (f.out && urls.length > 1) { console.error('--out works with a single URL only'); process.exitCode = 2; return; } // guard v1
+  if (!Number.isFinite(f.wait) || !Number.isFinite(f.maxBytes)) { console.error('--wait/--max-bytes expect numbers'); process.exitCode = 2; return; }
 
   const emit = t => { const s = String(t);
     if (f.out) { fs.writeFileSync(f.out, s); console.error('[ok] written to ' + f.out); return; }

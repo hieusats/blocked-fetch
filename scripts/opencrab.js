@@ -50,8 +50,9 @@ function emit(text, flags) {
 }
 function truncEnvelope(json, cap) { // cắt trường payload — envelope vẫn JSON hợp lệ (spec §4)
   const e = JSON.parse(json);
-  for (const k of ['markdown', 'text', 'html', 'json']) if (typeof e[k] === 'string' && e[k].length > cap - 500) e[k] = e[k].slice(0, cap - 500) + '…[truncated]';
-  else if (e[k] && typeof e[k] === 'object') e[k] = JSON.stringify(e[k]).slice(0, cap - 500);
+  const budget = Math.max(cap - 500, 0); // cap < 500 → budget 0, không slice âm
+  for (const k of ['markdown', 'text', 'html', 'json']) if (typeof e[k] === 'string' && e[k].length > budget) e[k] = e[k].slice(0, budget) + '…[truncated]';
+  else if (e[k] && typeof e[k] === 'object') e[k] = JSON.stringify(e[k]).slice(0, budget);
   return JSON.stringify(e);
 }
 
@@ -63,6 +64,7 @@ function parseScrapeFlags(argv) {
     else if (a === '--wait-for') f.waitFor = argv[++i]; else if (a === '--screenshot') f.screenshot = argv[++i];
     else if (a === '--stealth') f.stealth = true; else f.url = a; }
   if (!/^https?:\/\//.test(f.url)) throw new fetcher.SetupError('scrape: cần URL http(s)');
+  if (f.maxBytes !== null && !Number.isFinite(f.maxBytes)) throw new fetcher.SetupError('--max-bytes expects a number');
   return f;
 }
 // crawl/map engine lives in lib/crawl.js (crawlBFS); CLI wrappers here — bins own argv + exit codes (spec §5)
@@ -76,6 +78,8 @@ async function cmdCrawl(argv) {
     else if (a === '--resume') o.resume = true; else if (a === '--changed-only') o.changedOnly = true;
     else if (a === '--aggressive') o.aggressive = true; else url = a; }
   if (!url || !out) { console.error('Usage: crawl URL --out DIR [--limit N] [--depth N] [--delay MS] [--include G] [--exclude G] [--resume] [--changed-only] [--aggressive]'); process.exitCode = 2; return; }
+  for (const [k, v] of [['--limit', o.limit], ['--depth', o.depth], ['--delay', o.delayMs]])
+    if (v !== null && !Number.isFinite(v)) { console.error(k + ' expects a number'); process.exitCode = 2; return; }
   o.outDir = out;
   require('../lib/crawl').crawlBFS(url, o).then(sum => {
     console.log(`ok=${sum.ok} failed=${sum.failed} http=${sum.http} unchanged=${sum.unchanged} robots=${sum.skippedRobots} dup=${sum.dup} resumed=${sum.resumed} index=${require('path').join(out, 'index.jsonl')}`);
@@ -89,6 +93,8 @@ async function cmdMap(argv) { // map = crawlBFS({linksOnly:true}) — thuần st
     if (a === '--limit') o.limit = parseInt(argv[++i], 10); else if (a === '--depth') o.depth = parseInt(argv[++i], 10);
     else if (a === '--delay') o.delayMs = parseInt(argv[++i], 10); else if (a === '--aggressive') o.aggressive = true; else url = a; }
   if (!url) { console.error('Usage: map URL [--limit N] [--depth N] [--delay MS] [--aggressive]'); process.exitCode = 2; return; }
+  for (const [k, v] of [['--limit', o.limit], ['--depth', o.depth], ['--delay', o.delayMs]])
+    if (v !== null && !Number.isFinite(v)) { console.error(k + ' expects a number'); process.exitCode = 2; return; }
   require('../lib/crawl').crawlBFS(url, o).then(({ pages, sum }) => {
     console.log(JSON.stringify(pages));
     if (!process.exitCode) process.exitCode = sum.failed ? 1 : 0;
@@ -109,6 +115,7 @@ async function cmdSearch(argv) { // bare array; --scrape → JSONL envelope + de
   for (let i = 0; i < argv.length; i++) { const a = argv[i];
     if (a === '--scrape') scrape = true; else if (a === '--limit') limit = parseInt(argv[++i], 10); else q = q ? q + ' ' + a : a; }
   if (!q) { die2('Usage: search "query" [--limit N] [--scrape]'); return; }
+  if (!Number.isFinite(limit)) { die2('--limit expects a number'); return; }
   let sr;
   try { sr = await fetcher.searchResults(q, { limit }); }
   catch (e) { if (e instanceof fetcher.SetupError) return die2(e.message); console.error('[!] ' + e.message); process.exitCode = 1; await fetcher.close(); return; }
