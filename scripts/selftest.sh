@@ -12,7 +12,7 @@ trap cleanup EXIT
 fail() { echo "FAIL: $1"; exit 1; }
 
 start_fixture() {
-  python3 -u -m http.server 0 --directory testdata >/tmp/oc-srv.log 2>&1 &  # -u: banner is block-buffered when redirected; readiness grep below never sees the port without it
+  python3 -u -m http.server 0 --bind 127.0.0.1 --directory testdata >/tmp/oc-srv.log 2>&1 &  # -u: banner is block-buffered when redirected; readiness grep below never sees the port without it
   SRV_PID=$!
   for _ in $(seq 1 50); do
     PORT=$(grep -oE ':[0-9]+' /tmp/oc-srv.log | head -1 | tr -d ':')
@@ -45,6 +45,7 @@ node scripts/opencrab.js scrape "$BASE/doc.pdf" --raw | grep -qi opencrab || fai
 # wrapper (Task 6): stdout format cũ (spec §3)
 node scripts/fetch.js "$BASE/a.html" | grep -q 'Page A' || fail "wrapper raw"
 node scripts/fetch.js "$BASE/a.html" --text | grep -q 'Page A' || fail "wrapper --text"
+node scripts/fetch.js "$BASE/doc.pdf" --text | grep -qi opencrab || fail "wrapper PDF --text"
 node scripts/fetch.js "$BASE/a.html" --selector 'h1' | grep -q '"text":"Page A"' || fail "wrapper --selector"
 OUT=$(node scripts/fetch.js "$BASE/blocked.html" 2>/dev/null); RC=$?
 [ $RC = 1 ] && [ -z "$OUT" ] || fail "wrapper blocked empty+1"

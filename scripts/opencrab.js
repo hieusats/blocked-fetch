@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 // opencrab.js — CLI (spec §5). Exit: 0 ok · 1 blocked/partial · 2 usage/setup.
-const crypto = require('crypto'); // hash payload — dùng từ Task 7 (crawl)
 const fs = require('fs');
 const fetcher = require('../lib/fetcher');
 const { toMarkdown, htmlToText, pdfToText } = require('../lib/md');
@@ -86,14 +85,16 @@ async function cmdSearch(argv) { // bare array; --scrape → JSONL envelope + de
   if (!q) { die2('Usage: search "query" [--limit N] [--scrape]'); return; }
   let sr;
   try { sr = await fetcher.searchResults(q, { limit }); }
-  catch (e) { console.error('[!] ' + e.message); process.exitCode = 1; await fetcher.close(); return; }
+  catch (e) { if (e instanceof fetcher.SetupError) return die2(e.message); console.error('[!] ' + e.message); process.exitCode = 1; await fetcher.close(); return; }
   if (!scrape) { console.log(JSON.stringify(sr.results)); await fetcher.close(); return; }
   let anyBad = false;
   for (let i = 0; i < sr.results.length; i++) {
     const u = sr.results[i].url; // robots gate cho search --scrape (spec §6.4)
     const rb = await require('../lib/crawl').loadRobots(new URL(u).origin).catch(() => null);
     if (rb && !rb.allowed(new URL(u).pathname)) { console.error('[#] robots: skip ' + u); continue; }
-    const { envelope: env } = await scrapeOne(u, {}); // scrapeOne TRẢ VỀ envelope, KHÔNG in — cmdSearch tự in (hợp đồng pin)
+    let env; // scrapeOne TRẢ VỀ envelope, KHÔNG in — cmdSearch tự in (hợp đồng pin)
+    try { ({ envelope: env } = await scrapeOne(u, {})); }
+    catch (e) { if (e instanceof fetcher.SetupError) { await fetcher.close(); return die2(e.message); } throw e; }
     console.log(JSON.stringify(env));
     if (!env || env.status !== 'ok') anyBad = true;
     if (i < sr.results.length - 1) await new Promise(r => setTimeout(r, 1500));

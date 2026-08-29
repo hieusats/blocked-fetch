@@ -21,6 +21,7 @@ npm link          # optional — puts the `opencrab` command on PATH
 ```
 
 - `playwright-core` and `cloakbrowser` are **optional dependencies**: installed by default, skipped with `npm install --omit=optional` (the cloakbrowser binary alone is ~200MB). The browser rung needs playwright-core; `--stealth` needs cloakbrowser — both degrade to a clear setup error (exit 2) when missing.
+- **Node version:** the deps realistically need Node ≥ 20 (jsdom/undici/unpdf engines ≥ 22, playwright-core ≥ 20). On Node 18 npm silently skips those browser optional deps, so the browser rung degrades to a clear exit-2 message. The `engines` field stays `>=18` (spec-pinned; the owner may bump it later).
 - The postinstall hook removes the legacy `~/.pi/agent/skills/blocked-fetch` skill if present — two skills with the same triggers fight each other. Manual fallback: `rm -rf ~/.pi/agent/skills/blocked-fetch`.
 
 The browser rung needs a chromium/chrome on the system. Auto-detection order:
