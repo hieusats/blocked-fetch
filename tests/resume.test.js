@@ -59,3 +59,23 @@ test('NaN numeric flags → exit 2 (usage)', { timeout: 60000 }, async t => {
     assert.strictEqual(err.code, 2, bad.join('=') + ' → ' + err.code);
   }
 });
+
+test('changed-only KHÔNG --resume trên server IMS: đủ coverage, không phá index', { timeout: 120000 }, async t => {
+  const http = require('http');
+  const srv = http.createServer((req, res) => {
+    if (req.headers['if-none-match']) { res.writeHead(304); return res.end(); }
+    const body = req.url === '/' ? '<a href="/a">a</a><a href="/b">b</a>' : 'page ' + req.url;
+    res.writeHead(200, { 'Content-Type': 'text/html', ETag: '"v1"' });
+    res.end(body);
+  });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const s = { url: `http://127.0.0.1:${srv.address().port}` };
+  t.after(() => new Promise(r => srv.close(r)));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-t8e-'));
+  const st = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-ste-'));
+  await run(['crawl', s.url + '/', '--out', dir, '--delay', '0'], { OPENCRAB_STATE_DIR: st });
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'index.jsonl'), 'utf8').trim().split('\n').length, 4); // header + 3
+  const out2 = await run(['crawl', s.url + '/', '--out', dir, '--changed-only', '--delay', '0'], { OPENCRAB_STATE_DIR: st });
+  assert.match(out2, /unchanged=3/); // seed 304 → enqueue a,b từ index cũ → 304 hết
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'index.jsonl'), 'utf8').trim().split('\n').length, 4, 'index không bị phá');
+});
