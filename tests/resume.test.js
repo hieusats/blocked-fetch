@@ -9,10 +9,10 @@ const { serveFixture } = require('./serve');
 const run = (args, env = {}) => new Promise((res, rej) =>
   execFile('node', [path.join(__dirname, '..', 'scripts', 'opencrab.js'), ...args],
     { env: { ...process.env, OPENCRAB_HOP: 'off', ...env }, encoding: 'utf8' },
-    (e, out) => e ? rej(Object.assign(e, { stdout: out })) : res(out)));
+    (e, out, errOut) => e ? rej(Object.assign(e, { stdout: out, stderr: errOut })) : res(out)));
 
-test('resume: n resumed=5 + robots memo, no new rows', { timeout: 240000 }, async () => {
-  const s = await serveFixture();
+test('resume: n resumed=5 + robots memo, no new rows', { timeout: 240000 }, async t => {
+  const s = await serveFixture(); t.after(() => s.close());
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-t8-'));
   const st = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-st-'));
   // run 1 POLITE (không aggressive): robots được tôn trọng → blocked.html = dòng robots → run resume memo đúng
@@ -22,16 +22,26 @@ test('resume: n resumed=5 + robots memo, no new rows', { timeout: 240000 }, asyn
   assert.match(out, /resumed=5/);
   assert.match(out, /robots=1/);
   assert.strictEqual(fs.readFileSync(path.join(dir, 'index.jsonl'), 'utf8'), idxBefore); // không dòng mới
-  await s.close();
 });
-test('changed-only 2 lần: lần 2 toàn unchanged', { timeout: 240000 }, async () => {
-  const s = await serveFixture();
+test('changed-only 2 lần: lần 2 toàn unchanged', { timeout: 240000 }, async t => {
+  const s = await serveFixture(); t.after(() => s.close());
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-t8b-'));
   const st = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-stb-'));
   await run(['crawl', s.url + '/', '--out', dir], { OPENCRAB_STATE_DIR: st });
   const out2 = await run(['crawl', s.url + '/', '--out', dir, '--changed-only'], { OPENCRAB_STATE_DIR: st });
   assert.match(out2, /unchanged=5/);
-  await s.close();
+});
+test('resume seed khác index → exit 2', { timeout: 240000 }, async t => {
+  const s = await serveFixture(); t.after(() => s.close());
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-t8c-'));
+  const st = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-stc-'));
+  await run(['crawl', s.url + '/', '--out', dir], { OPENCRAB_STATE_DIR: st });
+  const idx = path.join(dir, 'index.jsonl');
+  const lines = fs.readFileSync(idx, 'utf8').split('\n').filter(Boolean);
+  fs.writeFileSync(idx, [JSON.stringify({ seed: 'http://example.org/other', ts: 0 }), ...lines.slice(1)].join('\n') + '\n'); // header = dòng 1
+  const err = await run(['crawl', s.url + '/', '--out', dir, '--resume'], { OPENCRAB_STATE_DIR: st }).catch(e => e);
+  assert.strictEqual(err.code, 2);
+  assert.match(String(err.stderr), /different seed/);
 });
 // Lưu ý: fixture Crawl-delay 5s → mỗi lần crawl polite ~25-30s; timeout 240s dư dả. node:http không hỗ trợ IMS
 // → changed-only đi đường fetch-đầy-đủ + so hash (không 304) — đúng như engine xử lý hai nhánh.
