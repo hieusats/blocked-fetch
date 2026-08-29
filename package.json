@@ -2,6 +2,9 @@
   "name": "opencrab",
   "version": "2.0.0",
   "private": true,
+  "keywords": [
+    "pi-package"
+  ],
   "description": "Local free crawl/scrape tool for AI agents — ladder-based fetch, BFS crawl, map, search, extract",
   "scripts": {
     "selftest": "bash scripts/selftest.sh",
@@ -23,5 +26,10 @@
   "optionalDependencies": {
     "cloakbrowser": "^0.5.8",
     "playwright-core": "^1.50.0"
+  },
+  "pi": {
+    "skills": [
+      "."
+    ]
   }
 }
