@@ -121,15 +121,22 @@ async function cmdSearch(argv) { // bare array; --scrape → JSONL envelope + de
   catch (e) { if (e instanceof fetcher.SetupError) return die2(e.message); console.error('[!] ' + e.message); process.exitCode = 1; await fetcher.close(); return; }
   if (!scrape) { console.log(JSON.stringify(sr.results)); await fetcher.close(); return; }
   let anyBad = false;
+  const crawl = require('../lib/crawl'); // scrape-path only — giữ lazy jsdom cho search thường
+  const robotsMemo = new Map(); // origin → promise: 1 robots fetch/origin (trước đây: mỗi result một lượt, kèm full ladder)
   for (let i = 0; i < sr.results.length; i++) {
     const u = sr.results[i].url; // robots gate cho search --scrape (spec §6.4)
-    const rb = await require('../lib/crawl').loadRobots(new URL(u).origin).catch(() => null);
-    if (rb && !rb.allowed(new URL(u).pathname)) { console.error('[#] robots: skip ' + u); continue; }
+    const origin = new URL(u).origin;
+    if (!robotsMemo.has(origin)) robotsMemo.set(origin, crawl.loadRobots(origin));
+    let rb;
+    try { rb = await robotsMemo.get(origin); }
+    catch (e) { await fetcher.close(); if (e instanceof fetcher.SetupError) return die2(e.message); throw e; } // SetupError → exit 2, KHÔNG biến thành bypass gate
+    if (!rb.allowed(new URL(u).pathname)) { console.error('[#] robots: skip ' + u); continue; }
     let env; // scrapeOne TRẢ VỀ envelope, KHÔNG in — cmdSearch tự in (hợp đồng pin)
     try { ({ envelope: env } = await scrapeOne(u, {})); }
     catch (e) { if (e instanceof fetcher.SetupError) { await fetcher.close(); return die2(e.message); } throw e; }
-    console.log(JSON.stringify(env));
-    if (!env || env.status !== 'ok') anyBad = true;
+    const line = JSON.stringify(env); // cùng budget với cmdScrape — payload lớn không tràn stdout
+    console.log(line.length > 200000 ? truncEnvelope(line, 200000) : line);
+    if (env.status !== 'ok') anyBad = true;
     if (i < sr.results.length - 1) await new Promise(r => setTimeout(r, 1500));
   }
   await fetcher.close();
