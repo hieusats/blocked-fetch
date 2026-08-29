@@ -38,8 +38,10 @@ const { htmlToText, pdfToText } = require('../lib/md');
       catch (e) { if (e instanceof fetcher.SetupError) { console.error(e.message); process.exitCode = 2; return; } throw e; }
       if (r.status === 'blocked') { console.error('[!] blocked — retry with --stealth or a residential proxy'); ok = false; }
       else if (r.status.startsWith('error:')) { console.error('[!] ' + r.status.slice(6)); ok = false; } // v1 exit-0-silent là bug đã sửa (documented, spec §3)
-      else if (r.status !== 'ok') { emit(r.bytes.length ? r.bytes.toString('utf8') : '(http ' + r.status.slice(5) + ')'); ok = false; } // non-200: body nếu có, ngược lại "(http N)" như v1
-      else emit(f.text ? htmlToText(r.html ?? r.bytes.toString('utf8')) : compactJson(ctPdf(r.contentType) ? await pdfToText(r.bytes) : r.bytes.toString('utf8'))); // PDF → payload text (spec §3)
+      else if (r.status !== 'ok') { const body = r.bytes.length ? r.bytes.toString('utf8') : '(http ' + r.status.slice(5) + ')'; emit(f.text ? body : compactJson(body)); ok = false; } // non-200: body nếu có, ngược lại "(http N)"; compact như emit() v1
+      else emit(ctPdf(r.contentType) ? await pdfToText(r.bytes) // PDF → payload text trước tiên (spec §3)
+        : f.text ? r.text ?? htmlToText(r.html ?? r.bytes.toString('utf8')) // browser rung → innerText như v1; curl → htmlToText
+        : r.text ?? compactJson(r.bytes.toString('utf8'))); // browser rung mặc định in innerText như v1 (backcomp, kể cả trang JSON); curl → compact
     }
     if (!ok) failures++;
     if (i < urls.length - 1) await new Promise(r2 => setTimeout(r2, 2000)); // no parallel fetches — rate limits
