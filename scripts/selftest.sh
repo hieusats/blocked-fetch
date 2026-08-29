@@ -53,7 +53,10 @@ OUT404=$(node scripts/fetch.js "$BASE/nope.html"); RC404=$?
 
 # crawl (Task 7): POLITE mặc định — robots được tôn trọng: 5 file + 1 robots-skip, exit 0 (~25s: Crawl-delay 5s)
 CRAWL_DIR="$STATE_DIR/crawl"
+T0=$(date +%s)  # Task 8: Crawl-delay e2e — polite crawl ≥ 4×5s delay → tổng ≥ 20s (spec §9)
 [ "$(run node scripts/opencrab.js crawl "$BASE/" --out "$CRAWL_DIR")" = "0" ] || fail "crawl exit"
+T1=$(date +%s)
+[ $((T1-T0)) -ge 20 ] || fail "Crawl-delay not honored (<20s)"
 grep -q 'ok=5 failed=0 http=0 unchanged=0 robots=1 dup=0 resumed=0' /tmp/oc-out.json || fail "crawl summary"
 NFILES=$(find "$CRAWL_DIR" -type f ! -name 'index.jsonl' | wc -l)
 [ "$NFILES" = "5" ] || fail "crawl payload files ($NFILES != 5)"
