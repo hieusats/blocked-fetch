@@ -1,6 +1,10 @@
 ---
 name: opencrab
-description: Fetch pages and data from websites that block curl/bots — 403s, captcha, "blocked by network security" — AND crawl, scrape, map, search, extract data from any site as a free local replacement for paid crawl APIs. Ladder: curl-UA → browser → search-hop → CloakBrowser stealth.
+description: >
+  Fetch pages and data from websites that block curl/bots — 403s, captcha,
+  "blocked by network security" — AND crawl, scrape, map, search, extract data
+  from any site as a free local replacement for paid crawl APIs. Ladder:
+  curl-UA → browser → search-hop → CloakBrowser stealth.
 ---
 
 # opencrab
