@@ -118,6 +118,10 @@ npm run selftest-live    # live checks (Reddit hop, real search snippets, stealt
 
 Reset session profiles: `rm -rf ~/.local/state/opencrab/profile*`.
 
+## Benchmark
+
+Measured head-to-head vs Firecrawl (same machine, interleaved runs): [docs/BENCHMARK.md](docs/BENCHMARK.md) — single-page latency parity or better, anti-bot JSON where Firecrawl got 403'd, $0 and unthrottled; Firecrawl wins bulk crawl throughput (parallel infra vs polite sequential by design).
+
 ## Attribution
 
 Adapted from [reddit-fetch](https://github.com/ykdojo/claude-code-tips/tree/main/skills/reddit-fetch) by YK Sugi ([ykdojo/claude-code-tips](https://github.com/ykdojo/claude-code-tips)), generalized with permission-pending attribution (source is © YK Sugi, all rights reserved).
