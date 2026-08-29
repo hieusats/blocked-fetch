@@ -65,9 +65,35 @@ function parseScrapeFlags(argv) {
   if (!/^https?:\/\//.test(f.url)) throw new fetcher.SetupError('scrape: cần URL http(s)');
   return f;
 }
-// Task 7: crawl/map hiện thực thật trong lib/crawl.js (engine + summary print)
-async function cmdCrawl(argv) { return require('../lib/crawl').cmdCrawl(argv); } // return: promise lan lên top-level catch
-async function cmdMap(argv) { return require('../lib/crawl').cmdMap(argv); }
+// crawl/map engine lives in lib/crawl.js (crawlBFS); CLI wrappers here — bins own argv + exit codes (spec §5)
+async function cmdCrawl(argv) {
+  const o = { limit: 50, depth: 2, delayMs: null, include: [], exclude: [], resume: false, changedOnly: false, aggressive: false };
+  let url = '', out = '';
+  for (let i = 0; i < argv.length; i++) { const a = argv[i];
+    if (a === '--out') out = argv[++i]; else if (a === '--limit') o.limit = parseInt(argv[++i], 10);
+    else if (a === '--depth') o.depth = parseInt(argv[++i], 10); else if (a === '--delay') o.delayMs = parseInt(argv[++i], 10);
+    else if (a === '--include') o.include.push(argv[++i]); else if (a === '--exclude') o.exclude.push(argv[++i]);
+    else if (a === '--resume') o.resume = true; else if (a === '--changed-only') o.changedOnly = true;
+    else if (a === '--aggressive') o.aggressive = true; else url = a; }
+  if (!url || !out) { console.error('Usage: crawl URL --out DIR [--limit N] [--depth N] [--delay MS] [--include G] [--exclude G] [--resume] [--changed-only] [--aggressive]'); process.exitCode = 2; return; }
+  o.outDir = out;
+  require('../lib/crawl').crawlBFS(url, o).then(sum => {
+    console.log(`ok=${sum.ok} failed=${sum.failed} http=${sum.http} unchanged=${sum.unchanged} robots=${sum.skippedRobots} dup=${sum.dup} resumed=${sum.resumed} index=${require('path').join(out, 'index.jsonl')}`);
+    if (!process.exitCode) process.exitCode = sum.failed ? 1 : 0;
+  }).catch(e => { if (e instanceof fetcher.SetupError) { console.error(e.message); process.exitCode = 2; } else { console.error('[!] ' + e.message); process.exitCode = 1; } });
+}
+async function cmdMap(argv) { // map = crawlBFS({linksOnly:true}) — thuần stdout (spec §3/§4)
+  const o = { limit: 500, depth: 3, delayMs: null, aggressive: false, linksOnly: true, outDir: null, include: [], exclude: [] };
+  let url = '';
+  for (let i = 0; i < argv.length; i++) { const a = argv[i];
+    if (a === '--limit') o.limit = parseInt(argv[++i], 10); else if (a === '--depth') o.depth = parseInt(argv[++i], 10);
+    else if (a === '--delay') o.delayMs = parseInt(argv[++i], 10); else if (a === '--aggressive') o.aggressive = true; else url = a; }
+  if (!url) { console.error('Usage: map URL [--limit N] [--depth N] [--delay MS] [--aggressive]'); process.exitCode = 2; return; }
+  require('../lib/crawl').crawlBFS(url, o).then(({ pages, sum }) => {
+    console.log(JSON.stringify(pages));
+    if (!process.exitCode) process.exitCode = sum.failed ? 1 : 0;
+  }).catch(e => { if (e instanceof fetcher.SetupError) { console.error(e.message); process.exitCode = 2; } else { console.error('[!] ' + e.message); process.exitCode = 1; } });
+}
 // Task 9: search (3-engine + --scrape JSONL) + extract (named selectors, jsdom) — spec §4/§5
 async function cmdExtract(argv) { // element {text, href?} — textContent (jsdom không có innerText), cap 300/500 (spec §4)
   const pairs = []; let url = '';
