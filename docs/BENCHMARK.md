@@ -21,7 +21,7 @@
 Same method (interleaved, 3 runs), 7 classic anti-bot targets, 2026-08-29. "Real content" = useful payload, verified by inspecting the markdown head (not just the success flag).
 
 | Site | Firecrawl | opencrab | Verified content | Winner |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Reddit `r/LocalLLaMA/hot.json` | 0/3 — HTTP 403 | **3/3, 4.0 s, `via:browser`, 29 KB JSON** | OC: real post JSON | **opencrab** |
 | Instagram profile | 0/3 — HTTP 403 | **3/3, 1.3 s, `via:curl`, 199 KB** | OC: real profile HTML (CSS-noisy) | **opencrab** |
 | X profile | 3/3, 7.7 s, 1.6 KB | **3/3, 2.2 s, `via:curl`, 101 KB** | both: server-rendered shell; OC carries the real page title + embedded data | opencrab (edge) |
